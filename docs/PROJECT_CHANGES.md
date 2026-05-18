@@ -773,3 +773,16 @@ GitHub sync for the validated runtime workspace revision
 * Prepared the currently validated local workspace state for version control upload
 * Included the latest runtime workspace UI refinement, trigger-label dropdown changes, and the corresponding validated asset saves in the Git snapshot
 * Synced the current `main` branch state to the existing GitHub remote repository `CJC-qwq/UE_XR`
+
+## 2026-05-18 17:14:58
+
+### Scope
+
+Git history cleanup for commit-level tag consistency
+
+### Detailed Description
+
+* Standardized repository versioning so every retained Git commit uses its own annotated, time-stamped tag
+* Removed the intermediate milestone-tag history path from `main` so the branch keeps only the meaningful retained versions
+* Added an explicit rule that dropping a retained commit also requires dropping tags that point only to that removed commit
+* Prepared a cleaned branch tip that can replace the old `main` history while preserving direct GitHub entry points for the kept versions

@@ -55,6 +55,19 @@ After each implemented request, update:
 * `docs/MAINTENANCE_PROGRESS.md` with date, scope, status, and next actions.
 * Related design and operation documents when behavior or process changes.
 
+# Git Versioning Rule
+
+For this repository, every Git commit that is kept as part of the working history must also receive its own annotated Git tag.
+
+* Do not use vague “final version” style naming.
+* Prefer one tag per commit so the user can find any historical state directly from GitHub.
+* Use a time-stamped tag format:
+  * `vYYYY.MM.DD-HHMMSS-short-slug`
+* When a commit is removed from retained history, remove the tag or tags that point only to that dropped commit.
+* When a new commit is created for the user, push both:
+  * the commit on its branch
+  * the annotated tag for that exact commit
+
 # Communication Preference Rule
 
 When the agent needs the user to perform or confirm a submit-like step, the agent must ask in Chinese.
