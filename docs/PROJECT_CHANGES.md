@@ -731,3 +731,45 @@ Repository cleanup for local OSC Blueprint export
 * Removed the local analysis export file `osc蓝图.txt` from Git tracking after it was mistakenly included during the initial repository import
 * Added `osc蓝图.txt` to `.gitignore` so future local Blueprint text exports do not get staged by accident
 * Rewrote the initial repository commit and force-pushed the cleaned history so the exported Blueprint text file is no longer present in the published GitHub branch history
+
+## 2026-05-18 13:27:58
+
+### Scope
+
+Trigger config generic action dropdown and label-first option display
+
+### Detailed Description
+
+* Added a new built-in `GetGenericActionOptions()` source in `UXRSceneTriggerConfig`
+* Updated `TriggerActions.GenericEffectsToTrigger` so it now uses the same Unreal `GetOptions` dropdown workflow already used by background and effect trigger references
+* Changed trigger-config dropdown display behavior to prefer each entry's label field:
+  * `BackgroundLabel` for background options
+  * `EffectLabel` for effect options
+  * `ActionLabel` for generic action options
+* Kept a fallback to the underlying Id when a label is empty, so incomplete entries still remain selectable
+
+## 2026-05-18 13:47:33
+
+### Scope
+
+Runtime debug workspace read-only config browser and trigger-label dropdown
+
+### Detailed Description
+
+* Reworked the runtime workspace's `Background Levels`, `Effect Levels`, `Generic Actions`, and `Trigger Actions` sections from flat text lists into collapsible read-only entry panels
+* Added per-section scrolling and per-entry expand/collapse behavior so the runtime workspace now feels closer to the `XR Config -> Trigger Config Asset` browsing experience while still remaining non-editable
+* Updated runtime trigger launching controls to select from a `Trigger Label` dropdown instead of manually typing a `Trigger Id`
+* Kept trigger execution bound to the underlying integer `TriggerId` internally, while presenting label-first names to the user and falling back to ids only when labels are empty
+* Updated active-state and trigger execution status text so background / effect / generic action / trigger references now prefer configured labels instead of raw ids
+
+## 2026-05-18 13:59:11
+
+### Scope
+
+GitHub sync for the validated runtime workspace revision
+
+### Detailed Description
+
+* Prepared the currently validated local workspace state for version control upload
+* Included the latest runtime workspace UI refinement, trigger-label dropdown changes, and the corresponding validated asset saves in the Git snapshot
+* Synced the current `main` branch state to the existing GitHub remote repository `CJC-qwq/UE_XR`

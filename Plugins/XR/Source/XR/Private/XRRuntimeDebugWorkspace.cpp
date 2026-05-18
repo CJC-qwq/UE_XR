@@ -13,8 +13,9 @@
 #include "Misc/Optional.h"
 #include "Styling/CoreStyle.h"
 #include "Widgets/Input/SButton.h"
-#include "Widgets/Input/SNumericEntryBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SExpandableArea.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -47,6 +48,46 @@ namespace
 	FString NameOrNone(const FName Value)
 	{
 		return Value.IsNone() ? TEXT("(None)") : Value.ToString();
+	}
+
+	FString BoolToYesNo(const bool bValue)
+	{
+		return bValue ? TEXT("Yes") : TEXT("No");
+	}
+
+	FString LabelOrEmpty(const FString& Label)
+	{
+		return Label.IsEmpty() ? TEXT("(Empty)") : Label;
+	}
+
+	FString LabelOrId(const FString& Label, const FName IdValue, const FString& EmptyFallback = TEXT("(None)"))
+	{
+		if (!Label.IsEmpty())
+		{
+			return Label;
+		}
+
+		return IdValue.IsNone() ? EmptyFallback : IdValue.ToString();
+	}
+
+	FString TriggerLabelOrId(const FXRTriggerActionEntry& Entry)
+	{
+		return !Entry.TriggerLabel.IsEmpty()
+			? Entry.TriggerLabel
+			: FString::Printf(TEXT("Trigger %d"), Entry.TriggerId);
+	}
+
+	FString ResolveConfiguredTriggerDisplayName(const UXRSceneTriggerConfig* Config, const int32 TriggerId)
+	{
+		if (Config)
+		{
+			if (const FXRTriggerActionEntry* Entry = Config->FindTriggerAction(TriggerId))
+			{
+				return TriggerLabelOrId(*Entry);
+			}
+		}
+
+		return FString::Printf(TEXT("Trigger %d"), TriggerId);
 	}
 
 	FString JoinNames(const TArray<FName>& Values)
@@ -171,6 +212,12 @@ namespace
 
 		return BestMonitorIndex;
 	}
+
+	struct FXRRuntimeTriggerOption
+	{
+		int32 TriggerId = 0;
+		FString DisplayLabel;
+	};
 }
 
 class SXRRuntimeDebugWorkspacePanel : public SCompoundWidget
@@ -184,7 +231,6 @@ public:
 	void Construct(const FArguments& InArgs, FXRRuntimeDebugWorkspaceManager* InOwnerManager)
 	{
 		OwnerManager = InOwnerManager;
-		PendingTriggerId = 0;
 
 		ChildSlot
 		[
@@ -305,21 +351,26 @@ public:
 							SNew(SHorizontalBox)
 
 							+ SHorizontalBox::Slot()
+							.AutoWidth()
+							.Padding(0.0f, 0.0f, 8.0f, 0.0f)
+							[
+								SNew(STextBlock)
+								.Text(FText::FromString(TEXT("Trigger Label")))
+								.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+							]
+
+							+ SHorizontalBox::Slot()
 							.FillWidth(1.0f)
 							.Padding(0.0f, 0.0f, 8.0f, 0.0f)
 							[
-								SNew(SNumericEntryBox<int32>)
-								.AllowSpin(true)
-								.MinDesiredValueWidth(140.0f)
-								.LabelVAlign(VAlign_Center)
-								.Label()
+								SAssignNew(TriggerSelectionComboBox, SComboBox<TSharedPtr<FXRRuntimeTriggerOption>>)
+								.OptionsSource(&TriggerOptions)
+								.OnGenerateWidget(this, &SXRRuntimeDebugWorkspacePanel::GenerateTriggerOptionWidget)
+								.OnSelectionChanged(this, &SXRRuntimeDebugWorkspacePanel::HandleTriggerOptionChanged)
 								[
 									SNew(STextBlock)
-									.Text(FText::FromString(TEXT("Trigger Id")))
+									.Text(this, &SXRRuntimeDebugWorkspacePanel::GetSelectedTriggerOptionText)
 								]
-								.Value(this, &SXRRuntimeDebugWorkspacePanel::GetPendingTriggerId)
-								.OnValueChanged(this, &SXRRuntimeDebugWorkspacePanel::HandlePendingTriggerChanged)
-								.OnValueCommitted(this, &SXRRuntimeDebugWorkspacePanel::HandlePendingTriggerCommitted)
 							]
 
 							+ SHorizontalBox::Slot()
@@ -328,6 +379,7 @@ public:
 							[
 								SNew(SButton)
 								.Text(FText::FromString(TEXT("Run Trigger")))
+								.IsEnabled(this, &SXRRuntimeDebugWorkspacePanel::HasSelectedTriggerOption)
 								.OnClicked(this, &SXRRuntimeDebugWorkspacePanel::HandleRunTriggerClicked)
 							]
 
@@ -394,6 +446,7 @@ public:
 
 	void RefreshData()
 	{
+		RefreshTriggerOptions();
 		RebuildSections();
 	}
 
@@ -414,7 +467,118 @@ private:
 		}
 	}
 
-	TSharedRef<SWidget> MakeReadonlyRow(const FString& Description) const
+	const UXRSceneTriggerConfig* GetActiveConfig() const
+	{
+		const AXRSceneTriggerController* Controller = OwnerManager ? OwnerManager->GetActiveController() : nullptr;
+		return Controller ? Controller->TriggerConfig : nullptr;
+	}
+
+	FString ResolveBackgroundDisplayName(const UXRSceneTriggerConfig* Config, const FName BackgroundId) const
+	{
+		if (BackgroundId.IsNone())
+		{
+			return TEXT("(None)");
+		}
+
+		if (Config)
+		{
+			if (const FXRBackgroundLevelDefinition* Entry = Config->FindBackgroundLevel(BackgroundId))
+			{
+				return LabelOrId(Entry->BackgroundLabel, Entry->BackgroundId);
+			}
+		}
+
+		return BackgroundId.ToString();
+	}
+
+	FString ResolveEffectDisplayName(const UXRSceneTriggerConfig* Config, const FName EffectId) const
+	{
+		if (EffectId.IsNone())
+		{
+			return TEXT("(None)");
+		}
+
+		if (Config)
+		{
+			if (const FXREffectLevelDefinition* Entry = Config->FindEffectLevel(EffectId))
+			{
+				return LabelOrId(Entry->EffectLabel, Entry->EffectId);
+			}
+		}
+
+		return EffectId.ToString();
+	}
+
+	FString ResolveGenericActionDisplayName(const UXRSceneTriggerConfig* Config, const FName ActionId) const
+	{
+		if (ActionId.IsNone())
+		{
+			return TEXT("(None)");
+		}
+
+		if (Config)
+		{
+			if (const FXRGenericActionDefinition* Entry = Config->FindGenericAction(ActionId))
+			{
+				return LabelOrId(Entry->ActionLabel, Entry->ActionId);
+			}
+		}
+
+		return ActionId.ToString();
+	}
+
+	FString JoinBackgroundDisplayNames(const UXRSceneTriggerConfig* Config, const TArray<FName>& BackgroundIds) const
+	{
+		if (BackgroundIds.IsEmpty())
+		{
+			return TEXT("(None)");
+		}
+
+		TArray<FString> Parts;
+		Parts.Reserve(BackgroundIds.Num());
+		for (const FName BackgroundId : BackgroundIds)
+		{
+			Parts.Add(ResolveBackgroundDisplayName(Config, BackgroundId));
+		}
+
+		return FString::Join(Parts, TEXT(", "));
+	}
+
+	FString JoinEffectDisplayNames(const UXRSceneTriggerConfig* Config, const TArray<FName>& EffectIds) const
+	{
+		if (EffectIds.IsEmpty())
+		{
+			return TEXT("(None)");
+		}
+
+		TArray<FString> Parts;
+		Parts.Reserve(EffectIds.Num());
+		for (const FName EffectId : EffectIds)
+		{
+			Parts.Add(ResolveEffectDisplayName(Config, EffectId));
+		}
+
+		return FString::Join(Parts, TEXT(", "));
+	}
+
+	FString JoinGenericActionDisplayNames(const UXRSceneTriggerConfig* Config, const TArray<FName>& ActionIds) const
+	{
+		if (ActionIds.IsEmpty())
+		{
+			return TEXT("(None)");
+		}
+
+		TArray<FString> Parts;
+		Parts.Reserve(ActionIds.Num());
+		for (const FName ActionId : ActionIds)
+		{
+			Parts.Add(ResolveGenericActionDisplayName(Config, ActionId));
+		}
+
+		return FString::Join(Parts, TEXT(", "));
+	}
+
+	TSharedRef<SWidget> MakeReadonlyMessageRow(const FString& Description) const
 	{
 		return SNew(SBorder)
 			.Padding(6.0f)
@@ -423,6 +587,67 @@ private:
 				SNew(STextBlock)
 				.AutoWrapText(true)
 				.Text(FText::FromString(Description))
+			];
+	}
+
+	TSharedRef<SWidget> MakeReadonlyFieldRow(const FString& FieldLabel, const FString& FieldValue) const
+	{
+		return SNew(SBorder)
+			.Padding(FMargin(2.0f, 3.0f))
+			.BorderImage(FCoreStyle::Get().GetBrush("NoBorder"))
+			[
+				SNew(SHorizontalBox)
+
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(0.0f, 0.0f, 12.0f, 0.0f)
+				[
+					SNew(STextBlock)
+					.Text(FText::FromString(FieldLabel))
+					.Font(FCoreStyle::GetDefaultFontStyle("Bold", 10))
+				]
+
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SNew(STextBlock)
+					.AutoWrapText(true)
+					.Text(FText::FromString(FieldValue))
+				]
+			];
+	}
+
+	TSharedRef<SWidget> MakeReadonlyEntryArea(const FString& EntryTitle, const TSharedRef<SWidget>& BodyContent, const bool bInitiallyCollapsed) const
+	{
+		return SNew(SBorder)
+			.Padding(0.0f)
+			.BorderImage(FCoreStyle::Get().GetBrush("ToolPanel.GroupBorder"))
+			[
+				SNew(SExpandableArea)
+				.AreaTitle(FText::FromString(EntryTitle))
+				.InitiallyCollapsed(bInitiallyCollapsed)
+				.BodyContent()
+				[
+					SNew(SBorder)
+					.Padding(8.0f)
+					.BorderImage(FCoreStyle::Get().GetBrush("NoBorder"))
+					[
+						BodyContent
+					]
+				]
+			];
+	}
+
+	TSharedRef<SWidget> WrapSectionEntryList(const TSharedRef<SVerticalBox>& Entries, const float MaxHeight) const
+	{
+		return SNew(SBox)
+			.MaxDesiredHeight(MaxHeight)
+			[
+				SNew(SScrollBox)
+				+ SScrollBox::Slot()
+				[
+					Entries
+				]
 			];
 	}
 
@@ -435,38 +660,36 @@ private:
 			Entries->AddSlot()
 			.AutoHeight()
 			[
-				MakeReadonlyRow(TEXT("No background levels configured."))
+				MakeReadonlyMessageRow(TEXT("No background levels configured."))
 			];
-			return Entries;
+			return WrapSectionEntryList(Entries, 220.0f);
 		}
 
 		for (const FXRBackgroundLevelDefinition& Entry : Config->BackgroundLevels)
 		{
-			const FString Description = FString::Printf(
-				TEXT("Label: %s | Id: %s | Level: %s | Sequence: %s | Reload On Retrigger: %s"),
-				Entry.BackgroundLabel.IsEmpty() ? TEXT("(Empty)") : *Entry.BackgroundLabel,
-				*NameOrNone(Entry.BackgroundId),
-				*GetSoftAssetDisplayName(Entry.LevelAsset),
-				*GetSoftAssetDisplayName(Entry.SequenceAsset),
-				Entry.bReloadWhenTriggeredAgain ? TEXT("Yes") : TEXT("No"));
+			TSharedRef<SVerticalBox> EntryBody = SNew(SVerticalBox);
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Background Label"), LabelOrEmpty(Entry.BackgroundLabel))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Background Id"), NameOrNone(Entry.BackgroundId))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Level Asset"), GetSoftAssetDisplayName(Entry.LevelAsset))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Sequence Asset"), GetSoftAssetDisplayName(Entry.SequenceAsset))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Reload On Retrigger"), BoolToYesNo(Entry.bReloadWhenTriggeredAgain))];
 
 			Entries->AddSlot()
 			.AutoHeight()
-			.Padding(0.0f, 0.0f, 0.0f, 4.0f)
+			.Padding(0.0f, 0.0f, 0.0f, 6.0f)
 			[
-				MakeReadonlyRow(Description)
+				MakeReadonlyEntryArea(LabelOrId(Entry.BackgroundLabel, Entry.BackgroundId, TEXT("Unnamed Background")), EntryBody, true)
 			];
 		}
 
-		return Entries;
+		return WrapSectionEntryList(Entries, 240.0f);
 	}
 
 	void RebuildBackgroundSection()
 	{
 		ResetSectionBox(BackgroundSectionBox);
 
-		const AXRSceneTriggerController* Controller = OwnerManager ? OwnerManager->GetActiveController() : nullptr;
-		const UXRSceneTriggerConfig* Config = Controller ? Controller->TriggerConfig : nullptr;
+		const UXRSceneTriggerConfig* Config = GetActiveConfig();
 		if (!BackgroundSectionBox.IsValid())
 		{
 			return;
@@ -477,7 +700,7 @@ private:
 		.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 		[
 			SNew(SExpandableArea)
-			.AreaTitle(FText::FromString(TEXT("Background Levels")))
+			.AreaTitle(FText::FromString(FString::Printf(TEXT("Background Levels (%d)"), Config ? Config->BackgroundLevels.Num() : 0)))
 			.InitiallyCollapsed(false)
 			.BodyContent()
 			[
@@ -495,41 +718,39 @@ private:
 			Entries->AddSlot()
 			.AutoHeight()
 			[
-				MakeReadonlyRow(TEXT("No effect levels configured."))
+				MakeReadonlyMessageRow(TEXT("No effect levels configured."))
 			];
-			return Entries;
+			return WrapSectionEntryList(Entries, 220.0f);
 		}
 
 		for (const FXREffectLevelDefinition& Entry : Config->EffectLevels)
 		{
-			const FString Description = FString::Printf(
-				TEXT("Label: %s | Id: %s | Level: %s | Sequence: %s | Allowed Backgrounds: %s | Reload On Retrigger: %s | Auto Unload: %s | Fallback Delay: %.2fs"),
-				Entry.EffectLabel.IsEmpty() ? TEXT("(Empty)") : *Entry.EffectLabel,
-				*NameOrNone(Entry.EffectId),
-				*GetSoftAssetDisplayName(Entry.LevelAsset),
-				*GetSoftAssetDisplayName(Entry.SequenceAsset),
-				*JoinNames(Entry.AllowedBackgroundIds),
-				Entry.bReloadWhenTriggeredAgain ? TEXT("Yes") : TEXT("No"),
-				Entry.bAutoUnloadWhenSequenceCompletes ? TEXT("Yes") : TEXT("No"),
-				Entry.FallbackAutoUnloadDelay);
+			TSharedRef<SVerticalBox> EntryBody = SNew(SVerticalBox);
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Effect Label"), LabelOrEmpty(Entry.EffectLabel))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Effect Id"), NameOrNone(Entry.EffectId))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Level Asset"), GetSoftAssetDisplayName(Entry.LevelAsset))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Sequence Asset"), GetSoftAssetDisplayName(Entry.SequenceAsset))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Allowed Backgrounds"), JoinBackgroundDisplayNames(Config, Entry.AllowedBackgroundIds))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Reload On Retrigger"), BoolToYesNo(Entry.bReloadWhenTriggeredAgain))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Auto Unload"), BoolToYesNo(Entry.bAutoUnloadWhenSequenceCompletes))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Fallback Delay"), FString::Printf(TEXT("%.2fs"), Entry.FallbackAutoUnloadDelay))];
 
 			Entries->AddSlot()
 			.AutoHeight()
-			.Padding(0.0f, 0.0f, 0.0f, 4.0f)
+			.Padding(0.0f, 0.0f, 0.0f, 6.0f)
 			[
-				MakeReadonlyRow(Description)
+				MakeReadonlyEntryArea(LabelOrId(Entry.EffectLabel, Entry.EffectId, TEXT("Unnamed Effect")), EntryBody, true)
 			];
 		}
 
-		return Entries;
+		return WrapSectionEntryList(Entries, 240.0f);
 	}
 
 	void RebuildEffectSection()
 	{
 		ResetSectionBox(EffectSectionBox);
 
-		const AXRSceneTriggerController* Controller = OwnerManager ? OwnerManager->GetActiveController() : nullptr;
-		const UXRSceneTriggerConfig* Config = Controller ? Controller->TriggerConfig : nullptr;
+		const UXRSceneTriggerConfig* Config = GetActiveConfig();
 		if (!EffectSectionBox.IsValid())
 		{
 			return;
@@ -540,7 +761,7 @@ private:
 		.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 		[
 			SNew(SExpandableArea)
-			.AreaTitle(FText::FromString(TEXT("Effect Levels")))
+			.AreaTitle(FText::FromString(FString::Printf(TEXT("Effect Levels (%d)"), Config ? Config->EffectLevels.Num() : 0)))
 			.InitiallyCollapsed(true)
 			.BodyContent()
 			[
@@ -558,9 +779,9 @@ private:
 			Entries->AddSlot()
 			.AutoHeight()
 			[
-				MakeReadonlyRow(TEXT("No generic actions configured."))
+				MakeReadonlyMessageRow(TEXT("No generic actions configured."))
 			];
-			return Entries;
+			return WrapSectionEntryList(Entries, 220.0f);
 		}
 
 		for (const FXRGenericActionDefinition& Entry : Config->GenericActions)
@@ -568,32 +789,34 @@ private:
 			const FString TargetSummary = Entry.TargetType == EXRGenericActionTargetType::Actor
 				? FString::Printf(TEXT("Actor Tag: %s"), *NameOrNone(Entry.TargetActorTag))
 				: TEXT("Persistent Level Blueprint");
-			const FString Description = FString::Printf(
-				TEXT("Label: %s | Id: %s | Target: %s | Trigger Action: %s | Stop Action: %s | Allowed Backgrounds: %s"),
-				Entry.ActionLabel.IsEmpty() ? TEXT("(Empty)") : *Entry.ActionLabel,
-				*NameOrNone(Entry.ActionId),
-				*TargetSummary,
-				*NameOrNone(Entry.ActionName),
-				*NameOrNone(Entry.StopActionName),
-				*JoinNames(Entry.AllowedBackgroundIds));
+			TSharedRef<SVerticalBox> EntryBody = SNew(SVerticalBox);
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Generic Action Label"), LabelOrEmpty(Entry.ActionLabel))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Generic Action Id"), NameOrNone(Entry.ActionId))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Target"), TargetSummary)];
+			if (Entry.TargetType == EXRGenericActionTargetType::Actor)
+			{
+				EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Target Actor Tag"), NameOrNone(Entry.TargetActorTag))];
+			}
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Trigger Action Name"), NameOrNone(Entry.ActionName))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Stop Action Name"), NameOrNone(Entry.StopActionName))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Allowed Backgrounds"), JoinBackgroundDisplayNames(Config, Entry.AllowedBackgroundIds))];
 
 			Entries->AddSlot()
 			.AutoHeight()
-			.Padding(0.0f, 0.0f, 0.0f, 4.0f)
+			.Padding(0.0f, 0.0f, 0.0f, 6.0f)
 			[
-				MakeReadonlyRow(Description)
+				MakeReadonlyEntryArea(LabelOrId(Entry.ActionLabel, Entry.ActionId, TEXT("Unnamed Generic Action")), EntryBody, true)
 			];
 		}
 
-		return Entries;
+		return WrapSectionEntryList(Entries, 240.0f);
 	}
 
 	void RebuildGenericActionSection()
 	{
 		ResetSectionBox(GenericActionSectionBox);
 
-		const AXRSceneTriggerController* Controller = OwnerManager ? OwnerManager->GetActiveController() : nullptr;
-		const UXRSceneTriggerConfig* Config = Controller ? Controller->TriggerConfig : nullptr;
+		const UXRSceneTriggerConfig* Config = GetActiveConfig();
 		if (!GenericActionSectionBox.IsValid())
 		{
 			return;
@@ -604,7 +827,7 @@ private:
 		.Padding(0.0f, 0.0f, 0.0f, 8.0f)
 		[
 			SNew(SExpandableArea)
-			.AreaTitle(FText::FromString(TEXT("Generic Actions")))
+			.AreaTitle(FText::FromString(FString::Printf(TEXT("Generic Actions (%d)"), Config ? Config->GenericActions.Num() : 0)))
 			.InitiallyCollapsed(true)
 			.BodyContent()
 			[
@@ -622,61 +845,45 @@ private:
 			Entries->AddSlot()
 			.AutoHeight()
 			[
-				MakeReadonlyRow(TEXT("No trigger actions configured."))
+				MakeReadonlyMessageRow(TEXT("No trigger actions configured."))
 			];
-			return Entries;
+			return WrapSectionEntryList(Entries, 260.0f);
 		}
 
 		for (const FXRTriggerActionEntry& Entry : Config->TriggerActions)
 		{
-			const FString Description = FString::Printf(
-				TEXT("Label: %s | Trigger Id: %d | Background: %s | Force Reload: %s | Effects: %s | Generic Actions: %s"),
-				Entry.TriggerLabel.IsEmpty() ? TEXT("(Empty)") : *Entry.TriggerLabel,
-				Entry.TriggerId,
-				*NameOrNone(Entry.BackgroundToActivate),
-				Entry.bForceBackgroundReload ? TEXT("Yes") : TEXT("No"),
-				*JoinNames(Entry.EffectLevelsToTrigger),
-				*JoinNames(Entry.GenericEffectsToTrigger));
+			TSharedRef<SVerticalBox> EntryBody = SNew(SVerticalBox);
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Trigger Label"), LabelOrEmpty(Entry.TriggerLabel))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Trigger Id"), FString::FromInt(Entry.TriggerId))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Background To Activate"), ResolveBackgroundDisplayName(Config, Entry.BackgroundToActivate))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Force Background Reload"), BoolToYesNo(Entry.bForceBackgroundReload))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Effect Levels To Trigger"), JoinEffectDisplayNames(Config, Entry.EffectLevelsToTrigger))];
+			EntryBody->AddSlot().AutoHeight()[MakeReadonlyFieldRow(TEXT("Generic Actions To Trigger"), JoinGenericActionDisplayNames(Config, Entry.GenericEffectsToTrigger))];
+			EntryBody->AddSlot()
+			.AutoHeight()
+			.Padding(0.0f, 8.0f, 0.0f, 0.0f)
+			[
+				SNew(SButton)
+				.Text(FText::FromString(TEXT("Run This Trigger")))
+				.OnClicked(this, &SXRRuntimeDebugWorkspacePanel::HandleRunSpecificTriggerClicked, Entry.TriggerId)
+			];
 
 			Entries->AddSlot()
 			.AutoHeight()
-			.Padding(0.0f, 0.0f, 0.0f, 4.0f)
+			.Padding(0.0f, 0.0f, 0.0f, 6.0f)
 			[
-				SNew(SBorder)
-				.Padding(6.0f)
-				.BorderImage(FCoreStyle::Get().GetBrush("NoBorder"))
-				[
-					SNew(SHorizontalBox)
-
-					+ SHorizontalBox::Slot()
-					.FillWidth(1.0f)
-					.Padding(0.0f, 0.0f, 8.0f, 0.0f)
-					[
-						SNew(STextBlock)
-						.AutoWrapText(true)
-						.Text(FText::FromString(Description))
-					]
-
-					+ SHorizontalBox::Slot()
-					.AutoWidth()
-					[
-						SNew(SButton)
-						.Text(FText::FromString(TEXT("Run")))
-						.OnClicked(this, &SXRRuntimeDebugWorkspacePanel::HandleRunSpecificTriggerClicked, Entry.TriggerId)
-					]
-				]
+				MakeReadonlyEntryArea(TriggerLabelOrId(Entry), EntryBody, true)
 			];
 		}
 
-		return Entries;
+		return WrapSectionEntryList(Entries, 300.0f);
 	}
 
 	void RebuildTriggerSection()
 	{
 		ResetSectionBox(TriggerSectionBox);
 
-		const AXRSceneTriggerController* Controller = OwnerManager ? OwnerManager->GetActiveController() : nullptr;
-		const UXRSceneTriggerConfig* Config = Controller ? Controller->TriggerConfig : nullptr;
+		const UXRSceneTriggerConfig* Config = GetActiveConfig();
 		if (!TriggerSectionBox.IsValid())
 		{
 			return;
@@ -686,7 +893,7 @@ private:
 		.AutoHeight()
 		[
 			SNew(SExpandableArea)
-			.AreaTitle(FText::FromString(TEXT("Trigger Actions")))
+			.AreaTitle(FText::FromString(FString::Printf(TEXT("Trigger Actions (%d)"), Config ? Config->TriggerActions.Num() : 0)))
 			.InitiallyCollapsed(false)
 			.BodyContent()
 			[
@@ -695,19 +902,85 @@ private:
 		];
 	}
 
-	TOptional<int32> GetPendingTriggerId() const
+	void RefreshTriggerOptions()
 	{
-		return PendingTriggerId;
+		const UXRSceneTriggerConfig* Config = GetActiveConfig();
+		const int32 PreviousSelectedTriggerId = SelectedTriggerOption.IsValid()
+			? SelectedTriggerOption->TriggerId
+			: (LastExecutedTriggerId.IsSet() ? LastExecutedTriggerId.GetValue() : INDEX_NONE);
+
+		TriggerOptions.Reset();
+		SelectedTriggerOption.Reset();
+
+		if (Config)
+		{
+			for (const FXRTriggerActionEntry& Entry : Config->TriggerActions)
+			{
+				TSharedPtr<FXRRuntimeTriggerOption> Option = MakeShared<FXRRuntimeTriggerOption>();
+				Option->TriggerId = Entry.TriggerId;
+				Option->DisplayLabel = TriggerLabelOrId(Entry);
+				TriggerOptions.Add(Option);
+			}
+		}
+
+		if (TriggerSelectionComboBox.IsValid())
+		{
+			TriggerSelectionComboBox->RefreshOptions();
+		}
+
+		if (PreviousSelectedTriggerId != INDEX_NONE)
+		{
+			SelectTriggerOptionById(PreviousSelectedTriggerId);
+		}
+
+		if (!SelectedTriggerOption.IsValid() && !TriggerOptions.IsEmpty())
+		{
+			SelectedTriggerOption = TriggerOptions[0];
+			if (TriggerSelectionComboBox.IsValid())
+			{
+				TriggerSelectionComboBox->SetSelectedItem(SelectedTriggerOption);
+			}
+		}
 	}
 
-	void HandlePendingTriggerChanged(const int32 NewValue)
+	void SelectTriggerOptionById(const int32 TriggerId)
 	{
-		PendingTriggerId = NewValue;
+		for (const TSharedPtr<FXRRuntimeTriggerOption>& Option : TriggerOptions)
+		{
+			if (Option.IsValid() && Option->TriggerId == TriggerId)
+			{
+				SelectedTriggerOption = Option;
+				if (TriggerSelectionComboBox.IsValid())
+				{
+					TriggerSelectionComboBox->SetSelectedItem(Option);
+				}
+				return;
+			}
+		}
 	}
 
-	void HandlePendingTriggerCommitted(const int32 NewValue, ETextCommit::Type CommitType)
+	TSharedRef<SWidget> GenerateTriggerOptionWidget(TSharedPtr<FXRRuntimeTriggerOption> Option) const
 	{
-		PendingTriggerId = NewValue;
+		const FString DisplayLabel = Option.IsValid() ? Option->DisplayLabel : TEXT("(Invalid Trigger)");
+		return SNew(STextBlock)
+			.Text(FText::FromString(DisplayLabel));
+	}
+
+	void HandleTriggerOptionChanged(TSharedPtr<FXRRuntimeTriggerOption> NewSelection, ESelectInfo::Type SelectInfo)
+	{
+		SelectedTriggerOption = NewSelection;
+	}
+
+	FText GetSelectedTriggerOptionText() const
+	{
+		return SelectedTriggerOption.IsValid()
+			? FText::FromString(SelectedTriggerOption->DisplayLabel)
+			: FText::FromString(TEXT("Select Trigger Label"));
+	}
+
+	bool HasSelectedTriggerOption() const
+	{
+		return SelectedTriggerOption.IsValid();
 	}
 
 	bool CanRunLastTrigger() const
@@ -717,18 +990,18 @@ private:
 
 	FReply HandleRunTriggerClicked()
 	{
-		if (!PendingTriggerId.IsSet())
+		if (!SelectedTriggerOption.IsValid())
 		{
-			LastActionStatus = FText::FromString(TEXT("Enter a trigger id before running."));
+			LastActionStatus = FText::FromString(TEXT("Choose a trigger label before running."));
 			return FReply::Handled();
 		}
 
-		return ExecuteTriggerAndReport(PendingTriggerId.GetValue());
+		return ExecuteTriggerAndReport(SelectedTriggerOption->TriggerId);
 	}
 
 	FReply HandleRunSpecificTriggerClicked(const int32 TriggerId)
 	{
-		PendingTriggerId = TriggerId;
+		SelectTriggerOptionById(TriggerId);
 		return ExecuteTriggerAndReport(TriggerId);
 	}
 
@@ -740,6 +1013,7 @@ private:
 			return FReply::Handled();
 		}
 
+		SelectTriggerOptionById(LastExecutedTriggerId.GetValue());
 		return ExecuteTriggerAndReport(LastExecutedTriggerId.GetValue());
 	}
 
@@ -844,18 +1118,21 @@ private:
 			return FText::FromString(TEXT("Active State: unavailable because no runtime or editor controller is active."));
 		}
 
+		const UXRSceneTriggerConfig* Config = Controller->TriggerConfig;
 		const FString Summary = FString::Printf(
 			TEXT("Active Background: %s | Active Effects: %s | Active Generic Actions: %s"),
-			*NameOrNone(Controller->GetActiveBackgroundId()),
-			*JoinNames(Controller->GetActiveEffectIds()),
-			*JoinNames(Controller->GetActiveGenericActionIds()));
+			*ResolveBackgroundDisplayName(Config, Controller->GetActiveBackgroundId()),
+			*JoinEffectDisplayNames(Config, Controller->GetActiveEffectIds()),
+			*JoinGenericActionDisplayNames(Config, Controller->GetActiveGenericActionIds()));
 		return FText::FromString(Summary);
 	}
 
 	FXRRuntimeDebugWorkspaceManager* OwnerManager = nullptr;
-	TOptional<int32> PendingTriggerId;
 	TOptional<int32> LastExecutedTriggerId;
 	FText LastActionStatus;
+	TArray<TSharedPtr<FXRRuntimeTriggerOption>> TriggerOptions;
+	TSharedPtr<FXRRuntimeTriggerOption> SelectedTriggerOption;
+	TSharedPtr<SComboBox<TSharedPtr<FXRRuntimeTriggerOption>>> TriggerSelectionComboBox;
 	TSharedPtr<SVerticalBox> BackgroundSectionBox;
 	TSharedPtr<SVerticalBox> EffectSectionBox;
 	TSharedPtr<SVerticalBox> GenericActionSectionBox;
@@ -946,9 +1223,12 @@ bool FXRRuntimeDebugWorkspaceManager::ExecuteTrigger(const int32 TriggerId, FTex
 
 	const bool bDidExecute = Controller->TriggerInteger(TriggerId);
 	const FString WorldMode = GetWorldModeLabel(Controller->GetWorld());
+	const FString TriggerDisplayName = Controller->TriggerConfig
+		? ResolveConfiguredTriggerDisplayName(Controller->TriggerConfig, TriggerId)
+		: FString::Printf(TEXT("Trigger %d"), TriggerId);
 	OutMessage = bDidExecute
-		? FText::FromString(FString::Printf(TEXT("Executed trigger %d in %s."), TriggerId, *WorldMode))
-		: FText::FromString(FString::Printf(TEXT("Trigger %d did not execute any configured action in %s."), TriggerId, *WorldMode));
+		? FText::FromString(FString::Printf(TEXT("Executed %s in %s."), *TriggerDisplayName, *WorldMode))
+		: FText::FromString(FString::Printf(TEXT("%s did not execute any configured action in %s."), *TriggerDisplayName, *WorldMode));
 	return bDidExecute;
 }
 

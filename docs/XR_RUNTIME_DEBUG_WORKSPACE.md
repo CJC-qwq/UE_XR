@@ -22,7 +22,7 @@ The runtime workspace can:
 * show the currently bound `TriggerConfig`
 * show OSC runtime status
 * show active background / effect / generic action state
-* inspect configured backgrounds, effects, generic actions, and trigger actions
+* inspect configured backgrounds, effects, generic actions, and trigger actions through collapsible read-only panels
 * execute `TriggerInteger`
 * execute `StopAllAndReset`
 
@@ -81,6 +81,31 @@ In the editor:
    * per-trigger `Run`
    * `Stop All And Reset`
 5. Press `F10` again or click `Hide` when done
+
+## 7. Runtime browsing behavior
+
+The four config sections:
+
+* `Background Levels`
+* `Effect Levels`
+* `Generic Actions`
+* `Trigger Actions`
+
+are now presented as read-only expandable entry lists instead of plain text dumps.
+
+This means you can:
+
+* collapse or expand each content section
+* collapse or expand individual entries inside each section
+* scroll through large sections without editing the underlying asset
+
+The runtime trigger launcher now uses a `Trigger Label` dropdown.
+
+Behavior notes:
+
+* the dropdown prefers each trigger's `TriggerLabel`
+* if a trigger label is empty, it falls back to `Trigger <Id>`
+* executing a trigger from the dropdown or from a trigger entry still runs the original integer `TriggerId`
 
 ## 6. Editor usage
 

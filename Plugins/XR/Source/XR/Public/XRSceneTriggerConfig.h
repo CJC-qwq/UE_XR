@@ -87,7 +87,7 @@ struct XR_API FXRTriggerActionEntry
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "XR", meta = (GetOptions = "GetEffectLevelOptions"))
 	TArray<FName> EffectLevelsToTrigger;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "XR", meta = (DisplayName = "Generic Actions To Trigger"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "XR", meta = (DisplayName = "Generic Actions To Trigger", GetOptions = "GetGenericActionOptions"))
 	TArray<FName> GenericEffectsToTrigger;
 };
 
@@ -141,6 +141,9 @@ public:
 
 	UFUNCTION()
 	TArray<FPropertyTextFName> GetEffectLevelOptions() const;
+
+	UFUNCTION()
+	TArray<FPropertyTextFName> GetGenericActionOptions() const;
 
 	const FXRBackgroundLevelDefinition* FindBackgroundLevel(FName BackgroundId) const;
 	const FXREffectLevelDefinition* FindEffectLevel(FName EffectId) const;

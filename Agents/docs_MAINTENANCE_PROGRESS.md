@@ -1883,3 +1883,112 @@
 ### 下一步
 
 * 继续按当前仓库边界提交后续 XR 功能与文档更新
+
+## 2026-05-18 13:27:58 Trigger Config 的 Generic Action 下拉与 Label 显示修正
+
+### 任务
+
+* 把 `Trigger Config Asset` 里 `Generic Actions To Trigger` 改成和背景、特效引用一致的下拉选择
+* 将这些引用下拉里的显示文本改成优先使用 `Label`，而不是直接显示内部 Id
+
+### 处理
+
+* 更新 `UXRSceneTriggerConfig`
+* 新增：
+  * `GetGenericActionOptions()`
+* 将 `TriggerActions.GenericEffectsToTrigger` 增加 `GetOptions` 元数据，改为从已配置的 `GenericActions` 里下拉选取
+* 调整统一选项显示逻辑：
+  * `Background` 选项优先显示 `BackgroundLabel`
+  * `Effect` 选项优先显示 `EffectLabel`
+  * `Generic Action` 选项优先显示 `ActionLabel`
+* 若对应 `Label` 为空，则仍回退显示原始 Id，避免空白选项
+
+### 验证
+
+* 已执行 `XR_RunningEditor` 编译验证
+* 编译结果成功
+* 待你在编辑器里确认：
+  * `Generic Actions To Trigger` 已变成下拉选择
+  * 下拉项文本优先显示 label
+
+### 状态
+
+* 代码已完成并通过编译
+
+### 下一步
+
+* 由你在 `XR Config` 面板里做一次实际 UI 确认
+
+## 2026-05-18 13:47:33 运行时 Workspace 只读配置浏览与 Trigger Label 下拉改造
+
+### 任务
+
+* 将运行时 `XR Runtime Debug Workspace` 里的 `Background / Effect / Generic / Trigger` 四个配置区改成更接近 `XR Config -> Trigger Config Asset` 的浏览样式
+* 保留运行时只读约束，不允许在这里修改配置数据
+* 将运行时触发入口从手输 `TriggerId` 改为按 `TriggerLabel` 下拉选择
+
+### 处理
+
+* 重做 `XRRuntimeDebugWorkspace` 的四个配置分区展示
+* 从原来的纯文本列表改为：
+  * 顶层 section 可收缩展开
+  * 每条配置项也可单独收缩展开
+  * section 内支持滚动浏览
+* 保持这些内容为只读 Slate 展示，不接入任何编辑能力
+* 运行时触发区改为 `Trigger Label` 下拉框
+* 下拉项优先显示 `TriggerLabel`
+* 若某条 trigger 未填写 label，则回退显示 `Trigger <Id>`
+* 触发执行仍然走底层原有的 `TriggerId`，只是 UI 改成 label-first
+* 同步把运行时状态文本和 Trigger 配置引用显示改成优先展示 label，减少现场调试时看到一堆内部 Id
+* 更新文档：
+  * `docs/XR_RUNTIME_DEBUG_WORKSPACE.md`
+
+### 验证
+
+* 已执行 `XR_RunningEditor` 编译验证
+* 编译结果成功
+* 待你在编辑器 / 运行时现场确认：
+  * 四个配置区是否已经变成可展开收起的只读浏览样式
+  * `Trigger Label` 下拉是否符合你的使用习惯
+  * section 和条目滚动手感是否满足现场调试需要
+
+### 状态
+
+* 代码已完成并通过编译
+
+### 下一步
+
+* 由你在实际运行时 workspace 里做一轮 UI 体验确认
+
+## 2026-05-18 13:59:11 当前稳定版本上传到 GitHub
+
+### 任务
+
+* 将当前这版已经现场确认没问题的运行时 workspace 版本上传到 GitHub
+* 继续沿用现有远端仓库 `CJC-qwq/UE_XR` 做版本管理
+
+### 处理
+
+* 检查本地 Git 工作区状态
+* 确认当前分支为 `main`
+* 确认远端仍为：
+  * `origin = https://github.com/CJC-qwq/UE_XR.git`
+* 将本轮代码、文档以及现场验证后保存的相关资源改动纳入同一次版本快照
+* 计划执行：
+  * `git add`
+  * `git commit`
+  * `git push origin main`
+
+### 验证
+
+* 待执行提交与推送
+* 待确认 GitHub 远端已经收到最新 commit
+
+### 状态
+
+* 正在上传当前稳定版本
+
+### 下一步
+
+* 完成 commit 和 push
+* 向你回报 commit 结果与远端状态

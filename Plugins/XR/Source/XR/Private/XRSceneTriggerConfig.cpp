@@ -16,6 +16,11 @@ namespace
 
 	FText MakeEntryDisplayName(const FString& Label, const FName IdValue)
 	{
+		if (!Label.IsEmpty())
+		{
+			return FText::FromString(Label);
+		}
+
 		if (!IdValue.IsNone())
 		{
 			return FText::FromName(IdValue);
@@ -60,6 +65,26 @@ TArray<FPropertyTextFName> UXRSceneTriggerConfig::GetEffectLevelOptions() const
 		FPropertyTextFName& Option = Options.AddDefaulted_GetRef();
 		Option.ValueString = Entry.EffectId;
 		Option.DisplayName = MakeEntryDisplayName(Entry.EffectLabel, Entry.EffectId);
+	}
+
+	return Options;
+}
+
+TArray<FPropertyTextFName> UXRSceneTriggerConfig::GetGenericActionOptions() const
+{
+	TArray<FPropertyTextFName> Options;
+	Options.Reserve(GenericActions.Num());
+
+	for (const FXRGenericActionDefinition& Entry : GenericActions)
+	{
+		if (Entry.ActionId.IsNone())
+		{
+			continue;
+		}
+
+		FPropertyTextFName& Option = Options.AddDefaulted_GetRef();
+		Option.ValueString = Entry.ActionId;
+		Option.DisplayName = MakeEntryDisplayName(Entry.ActionLabel, Entry.ActionId);
 	}
 
 	return Options;
