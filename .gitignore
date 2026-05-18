@@ -1,0 +1,32 @@
+# Unreal Engine generated files
+.vs/
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Plugin generated files
+Plugins/*/Binaries/
+Plugins/*/Intermediate/
+
+# Visual Studio / IDE
+*.sln
+*.suo
+*.user
+*.userprefs
+*.VC.db
+*.VC.opendb
+.idea/
+.vscode/
+
+# Local archives and scratch files
+backups/
+*.zip
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+
+# Local analysis exports
+osc蓝图.txt
